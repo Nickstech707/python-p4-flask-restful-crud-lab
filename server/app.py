@@ -3,7 +3,7 @@
 from flask import Flask, jsonify, request, make_response
 from flask_migrate import Migrate
 from flask_restful import Api, Resource
-
+from sqlalchemy.exc import SQLAlchemyError
 from models import db, Plant
 
 app = Flask(__name__)
@@ -26,16 +26,23 @@ class Plants(Resource):
     def post(self):
         data = request.get_json()
 
-        new_plant = Plant(
-            name=data['name'],
-            image=data['image'],
-            price=data['price'],
-        )
+        if not data or not all(key in data for key in ("name", "image", "price")):
+            return make_response(jsonify({"error": "Missing required fields"}), 400)
 
-        db.session.add(new_plant)
-        db.session.commit()
+        try:
+            new_plant = Plant(
+                name=data['name'],
+                image=data['image'],
+                price=data['price'],
+            )
 
-        return make_response(new_plant.to_dict(), 201)
+            db.session.add(new_plant)
+            db.session.commit()
+            return make_response(new_plant.to_dict(), 201)
+
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(e)}), 500)
 
 
 api.add_resource(Plants, '/plants')
@@ -44,8 +51,78 @@ api.add_resource(Plants, '/plants')
 class PlantByID(Resource):
 
     def get(self, id):
-        plant = Plant.query.filter_by(id=id).first().to_dict()
-        return make_response(jsonify(plant), 200)
+        plant = Plant.query.filter_by(id=id).first()
+        if plant is None:
+            return make_response(jsonify({"error": "Plant not found"}), 404)
+        return make_response(jsonify(plant.to_dict()), 200)
+
+    def put(self, id):
+        plant = Plant.query.filter_by(id=id).first()
+        if plant is None:
+            return make_response(jsonify({"error": "Plant not found"}), 404)
+
+        data = request.get_json()
+
+        if not data:
+            return make_response(jsonify({"error": "No input data provided"}), 400)
+
+        try:
+            if "name" in data:
+                plant.name = data["name"]
+            if "image" in data:
+                plant.image = data["image"]
+            if "price" in data:
+                plant.price = data["price"]
+            if "is_in_stock" in data:
+                plant.is_in_stock = data["is_in_stock"]
+
+            db.session.commit()
+            return make_response(plant.to_dict(), 200)
+
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(e)}), 500)
+
+    def patch(self, id):
+        plant = Plant.query.filter_by(id=id).first()
+        if plant is None:
+            return make_response(jsonify({"error": "Plant not found"}), 404)
+
+        data = request.get_json()
+
+        if not data:
+            return make_response(jsonify({"error": "No input data provided"}), 400)
+
+        try:
+            if "name" in data:
+                plant.name = data["name"]
+            if "image" in data:
+                plant.image = data["image"]
+            if "price" in data:
+                plant.price = data["price"]
+            if "is_in_stock" in data:
+                plant.is_in_stock = data["is_in_stock"]
+
+            db.session.commit()
+            return make_response(plant.to_dict(), 200)
+
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(e)}), 500)
+
+    def delete(self, id):
+        plant = Plant.query.filter_by(id=id).first()
+        if plant is None:
+            return make_response(jsonify({"error": "Plant not found"}), 404)
+
+        try:
+            db.session.delete(plant)
+            db.session.commit()
+            return '', 204  # No Content
+
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            return make_response(jsonify({"error": str(e)}), 500)
 
 
 api.add_resource(PlantByID, '/plants/<int:id>')
